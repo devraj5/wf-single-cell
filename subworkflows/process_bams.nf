@@ -1,6 +1,3 @@
-import java.util.ArrayList;
-
-
 process split_gtf_by_chroms {
     label "singlecell"
     cpus 1
@@ -30,14 +27,7 @@ process generate_whitelist{
         tuple val(meta),
               path("kneeplot.png"),
               emit: kneeplot
-        // Note: This is called "uncorrected", but they're actually counts of
-        //       high quality exact matches to longlist. Low frequency barcodes
-        //       are assumed to be false positives. The list is further
-        //       filtered by the selected method (basically by abundance).
-    // TODO: change this to take precomputed, filtered counts from extract_barcodes
     script:
-    // It doesn't make sense to do cell count thresholding of the shortlist for visium data.
-    // A visium barcode is a tissue coordinate not a cell.
     def no_thresholding_opt = meta.kit.split(':')[0] == 'visium' ? '--no_cell_filter' : ""
     """
     workflow-glue create_shortlist \
@@ -80,7 +70,6 @@ process assign_barcodes{
 
 
 process merge_bams {
-    // Combine all BAMs derived from the initial chunking into per sample files
     label "wf_common"
     cpus params.threads
     memory "8 GB"
@@ -101,7 +90,6 @@ process merge_bams {
 
 
 process cat_tags_by_chrom {
-    // Merge per-chunk tags to create per-chromosome tags
     label "wf_common"
     cpus params.threads
     memory "8 GB"
@@ -115,11 +103,9 @@ process cat_tags_by_chrom {
 
     """
     mkdir chr_tags
-    # Find the chr column number
     files=(tags/*)
     chr_col=\$(awk -v RS='\t' '/chr/{print NR; exit}' "\${files[0]}")
 
-    # merge the tags TSVs, keep header from first file and split entries by chromosome
     awk -F'\t' -v chr_col=\$chr_col 'FNR==1{hdr=\$0; next} \
     {if (!seen[\$chr_col]++) \
         print hdr>"chr_tags/"\$chr_col".tsv"; \
@@ -131,7 +117,6 @@ process cat_tags_by_chrom {
 process stringtie {
     label "singlecell"
     cpus params.threads
-    // Memory usage for this process is usually less than 3GB, but some cases it may go over this.
     memory = { 3.GB * task.attempt }
     maxRetries = 3
     errorStrategy = { task.exitStatus in 137..140 ? 'retry' : 'terminate' }
@@ -154,15 +139,12 @@ process stringtie {
               emit: read_tr_map
     script:
     """
-    # Add chromosome label (-l) to generated transcripts
-    # so we don't get name collisions during file merge later
     samtools view -h align.bam ${chr}  \
         | tee >(
             stringtie -L ${params.stringtie_opts} -p ${task.cpus} \
                 -G chr.gtf -l "${chr}.stringtie" -o "stringtie.gff" - ) \
         | samtools fastq \
         | bgzip --threads 2 -c > reads.fastq.gz
-    # Get transcriptome sequence
     gffread -g ref_genome.fa -w "transcriptome.fa" "stringtie.gff"
     """
 }
@@ -178,7 +160,7 @@ process align_to_transcriptome {
               path('transcriptome.fa'),
               path('chr.gtf'),
               path('stringtie.gff'),
-              path("reads.fq.gz")
+              path("reads.fastq.gz")
     output:
         tuple val(meta),
               val(chr),
@@ -191,10 +173,10 @@ process align_to_transcriptome {
     def sort_threads = 3
     def mm2_threads = Math.max(task.cpus - view_threads - sort_threads, 4)
     """
-    minimap2 -ax map-ont --eqx -N 100 \
+    minimap2 -ax map-ont \
         --cap-kalloc 100m --cap-sw-mem 50m \
         --end-bonus 10 -p 0.9 -N 3 -t $mm2_threads \
-        transcriptome.fa reads.fq.gz \
+        transcriptome.fa reads.fastq.gz \
     | samtools view -h -@ $view_threads -b -F 2052 - \
     | samtools sort -n -@ $sort_threads --no-PG - > tr_align.bam
     """
@@ -204,9 +186,6 @@ process align_to_transcriptome {
 process assign_features {
     label "singlecell"
     cpus 1
-    // This step is performed per-chromosome. The tags file per chrom can vary
-    // quite widely in size. We don't have a fixed memory size here in order
-    // to get better parallelism on single-host setups.
     memory { 1.0.GB.toBytes() + (tags.size() * 2 ) }
     input:
         tuple val(meta),
@@ -223,12 +202,7 @@ process assign_features {
         tuple val(meta),
               path("gffcompare.annotated.gtf"),
               emit: annotation
-        tuple val(meta),
-              val(chr),
-              path("tr_tags.tsv"),
-              emit: tr_tags  // New output
     """
-    # gffcomapre maps transcript reference IDs to query transcripts.
     gffcompare -o gffcompare -r chr.gtf stringtie.gff
 
     workflow-glue assign_features \
@@ -238,24 +212,61 @@ process assign_features {
         tags.tsv \
         feature_assigns.tsv \
         --min_mapq ${params.gene_assigns_minqv}
-
-    # Generate transcriptome-specific tags including UB
-    workflow-glue generate_tr_tags \
-        tr_align.bam \
-        tags.tsv \
-        tr_tags.tsv \
-        --min_mapq ${params.gene_assigns_minqv}
     """
 }
 
 
-// Create expression matrices by combining barcode and feature
-// tag files. Also outputs the combined tags (per-chrom) to be combined later
+process tag_transcriptome_bam {
+    label "singlecell"
+    cpus 4
+    memory "16 GB"
+    publishDir "${params.out_dir}/${meta.alias}", mode: 'copy'
+    input:
+        tuple val(meta),
+              val(chr),
+              path('tr_align.bam'),
+              path('tr_align.bam.bai'),
+              path('feature_assigns.tsv')
+    output:
+        tuple val(meta),
+              val(chr),
+              path("tagged_tr_align.bam"),
+              path('tagged_tr_align.bam.bai')
+    script:
+    """
+    mkdir tags
+    cp feature_assigns.tsv tags/
+    workflow-glue tag_bam \
+        tr_align.bam tagged_tr_align.bam tags \
+        --threads ${task.cpus}
+    samtools index -@ ${task.cpus} "tagged_tr_align.bam"
+    """
+}
+
+
+process merge_tagged_transcriptome_bams {
+    label "singlecell"
+    cpus params.threads
+    memory "8 GB"
+    input:
+        tuple val(meta),
+              path('tagged_tr_align.bam'),
+              path('tagged_tr_align.bam.bai')
+    output:
+        tuple val(meta),
+              path("tagged_tr_align_merged.bam"),
+              path("tagged_tr_align_merged.bam.bai"),
+              emit: tagged_tr_bam
+    script:
+    """
+    samtools merge -@ ${task.cpus -1} --write-index -o "tagged_tr_align_merged.bam##idx##tagged_tr_align_merged.bam.bai" tagged_tr_align.bam
+    """
+}
+
+
 process create_matrix {
     label "singlecell"
     cpus 1
-    // Benchmarking showed that memory usage was ~ 15x the size of read_tags input.
-    // Set a minimum memory requirement of 1.0GB to allow for overhead.
     memory {1.0.GB.toBytes()  + (read_tags.size() * 20) }
     input:
         tuple val(meta), val(chr), path("features.tsv"), path(read_tags, stageAs: "barcodes.tsv")
@@ -274,8 +285,6 @@ process create_matrix {
 }
 
 
-// Combines multiple expression matrices (e.g. from different chromosomes)
-// and calculates summary information on the matrix including UMAPs
 process process_matrix {
     label "singlecell"
     cpus  1
@@ -287,7 +296,6 @@ process process_matrix {
         tuple val(meta), val(feature), path("${feature}_raw_feature_bc_matrix"), emit: raw
         tuple val(meta), val(feature), path("${feature}_processed_feature_bc_matrix"), emit: processed
         tuple val(meta), val(feature), path("${feature}.expression.mean-per-cell.tsv"), emit: meancell
-        // mito per cell makes sense only for feature=gene for now.
         tuple val(meta), val(feature), path("gene.expression.mito-per-cell.tsv"), emit: mitocell, optional: true
         tuple val(meta), val(feature), path("${feature}.expression.umap*.tsv"), emit: umap
     script:
@@ -314,11 +322,10 @@ process process_matrix {
 }
 
 
-// Merge annotated GFFs and transcriptome sequence files
 process merge_transcriptome {
     label "singlecell"
     cpus 2
-    memory "2 GB"
+    memory "2GB"
     publishDir "${params.out_dir}/${meta.alias}", mode: 'copy'
     input:
         tuple val(meta),
@@ -342,7 +349,6 @@ process merge_transcriptome {
 
 
 process combine_final_tag_files {
-    // Create final per-sample read summaries with information from all stages
     label "singlecell"
     cpus 1
     memory "1 GB"
@@ -415,23 +421,6 @@ process tag_bam {
 }
 
 
-process tag_tr_bam {
-    label "singlecell"
-    cpus 4
-    memory "16 GB"
-    input:
-        tuple val(meta), val(chr), path('tr_align.bam'), path('tr_tags.tsv')
-    output:
-        tuple val(meta), val(chr), path("tagged_tr.bam"), path('tagged_tr.bam.bai')
-    script:
-    """
-    workflow-glue tag_bam \
-        tr_align.bam tagged_tr.bam tr_tags.tsv \
-        --threads ${task.cpus}
-    samtools index -@ ${task.cpus} "tagged_tr.bam"
-    """
-}
-
 workflow process_bams {
     take:
         bam
@@ -441,17 +430,12 @@ workflow process_bams {
         ref_genome_fasta
         ref_genome_idx
     main:
-        // Split the GTF by chromosome
         chr_gtf = split_gtf_by_chroms(gtf)
             .flatten()
             .map {fname -> tuple(fname.baseName, fname)}  // [chr, gtf]
 
         generate_whitelist(high_qual_bc_counts)
 
-        // TODO: this process really has no business being here. It should be
-        //       moved into main.nf as an aggregation across all the chunks
-        //       in extracted_barcodes. It takes a long time per-chunk so should
-        //       be left as parallel across chunks.
         assign_barcodes(
             generate_whitelist.out.whitelist
             .cross(extracted_barcodes)
@@ -461,51 +445,51 @@ workflow process_bams {
                 barcodes = it[1][1]
                 [meta, whitelist, barcodes]})
 
-        // Combine the tag chunks to per chrom chunks and emit [meta, chr, tags]
         chr_tags = cat_tags_by_chrom(assign_barcodes.out.tags.groupTuple())
             .transpose()
             .map {meta, file -> [meta, file.baseName, file]}
 
-        // Combine the BAM chunks per-sample
         merge_bams(bam.groupTuple())
 
-        // Run stringtie per-chrom.
-        // Note: this passes in the whole genome BAM but the
-        //       .combine() runs this per-chrom such that we get
-        //       out reads as fastq per-chrom
         stringtie(
             ref_genome_fasta,
             ref_genome_idx,
             merge_bams.out.merged_bam
                 .combine(chr_gtf))
 
-        // TODO: We're likely to change this to use bambu and avoid using
-        //       stringtie altogether. However note that the next three steps
-        //       are a strict linear pipeline and should be combined into one
-        //       process to avoid staging of files between processes. Note further
-        //       that it would be trivial to combine the assign_features and
-        //       and create_matrix steps into a single program to avoid writing
-        //       any intermediate files whatsoever.
         align_to_transcriptome(stringtie.out.read_tr_map)
 
         assign_features(
             align_to_transcriptome.out.read_tr_map
                 .join(chr_tags, by: [0, 1]))
 
+        tag_transcriptome_bam(
+            assign_features.out.feature_assigns
+                .join(align_to_transcriptome.out.read_tr_map, by: [0, 1])
+                .map{it ->
+                    meta = it[0][0]
+                    chr = it[0][1]
+                    feature_assigns = it[0][2]
+                    tr_align_bam = it[1][2]
+                    tr_align_bam_bai = tr_align_bam + ".bai"
+                    [meta, chr, tr_align_bam, tr_align_bam_bai, feature_assigns]})
+
+        merge_tagged_transcriptome_bams(
+            tag_transcriptome_bam.out
+                .groupTuple()
+                .map{meta, chrs, files ->
+                    [meta, files.collect{it[2]}, files.collect{it[3]}]})
+
         create_matrix(
             assign_features.out.feature_assigns
-                // Join on [sample meta, chr]
                 .join(chr_tags, by: [0, 1]))
 
-        // aggregate per-chrom expression matrices to create MEX and UMAP TSVs
         process_matrix(
             create_matrix.out.gene.groupTuple(by: [0, 2])
             .mix(
                 create_matrix.out.transcript.groupTuple(by: [0, 2]))
-            .map {meta, chroms, feature, hdfs -> [meta, feature, hdfs]})
+            .map {meta, feature, hdfs -> [meta, feature, hdfs]})
 
-        // TODO: merging the gffs and merging the fasta files is two independent
-        //       tasks, they can be done in parallel in two distinct processes.
         merge_transcriptome(
             assign_features.out.annotation.groupTuple()
                 .join(stringtie.out.read_tr_map.groupTuple())
@@ -513,43 +497,23 @@ workflow process_bams {
                     meta, ann_tr_gff, chr, tr_fa, ref_gtf, str_gff, fastq ->
                     [meta, tr_fa, ann_tr_gff]})
 
-        // construct per-read summary tables for end user
-        // and a tagged bam -- we don't pass final_read_tags here since its
-        // advantageous for memory reasons to be able to read the per-chrom
-        // tables when iterating over the BAM
         tags_by_sample = create_matrix.out.summary
             .groupTuple()
             .map{meta, chrs, files -> [meta, files]}
+
         final_read_tags = combine_final_tag_files(tags_by_sample)
+
         tag_bam(merge_bams.out.join(tags_by_sample))
 
-        // UMI saturation curves
-        // TODO: this save figures with matplotlib -- just output
-        //       data and plot in report with bokeh
         umi_gene_saturation(final_read_tags)
 
-        // TODO: see above:
-        //       i) we shouldn't be making ugly static images
-        //       ii) this process simply stages images under a common folder
-        //           that could just be done in output directly
         pack_images(
             generate_whitelist.out.kneeplot
                 .concat(umi_gene_saturation.out.saturation_curve)
                 .groupTuple())
-
-        // Tag transcriptome-aligned BAM files
-        tag_tr_bam(
-            align_to_transcriptome.out.read_tr_map
-                .map { meta, chr, chr_gtf, tr_align_bam, stringtie_gff -> 
-                    [meta, chr, tr_align_bam] }
-                .join(assign_features.out.tr_tags, by: [0, 1])
-        )
     
     emit:
 
-        // Emit sperately for use in the report
-        // TODO: it shouldn't be the concern of this process what goes in the report
-        //       instead just collate everything possible per sample
         final_read_tags = final_read_tags
         plots = pack_images.out.collect{it -> it[1]}.collect()
         white_list = generate_whitelist.out.whitelist
@@ -569,12 +533,7 @@ workflow process_bams {
             .map{it->[it[0], it[2]]}
             .groupTuple(size:2)
             .map{key, files -> [key, files.flatten()]}
-        // per chromosome expression statistics
         expression_stats = create_matrix.out.stats
+        tagged_transcriptome_bam = merge_tagged_transcriptome_bams.out.tagged_tr_bam
 
-        // Add tagged transcriptome-aligned BAM to outputs
-        tagged_tr_bam = tag_tr_bam.out
-            .map { meta, chr, bam, bai -> [meta, bam, bai] }
-            .groupTuple(by: 0)
 }
-
