@@ -470,7 +470,7 @@ workflow process_bams {
                     meta = it[0][0]
                     chr = it[0][1]
                     feature_assigns = it[0][2]
-                    tr_align_bam = it[1][2]
+                    tr_align_bam = it[1][3]
                     tr_align_bam_bai = tr_align_bam + ".bai"
                     [meta, chr, tr_align_bam, tr_align_bam_bai, feature_assigns]})
 
