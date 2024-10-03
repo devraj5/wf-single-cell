@@ -188,7 +188,7 @@ process align_to_transcriptome {
             --end-bonus 10 -p 0.9 -t $mm2_threads \
             transcriptome.fa reads.fastq.gz \
         | samtools view -h -@ $view_threads -b -F 2052 - \
-        | samtools sort -n -@ $sort_threads --no-PG - > tr_align.bam
+        | samtools sort -@ $sort_threads --no-PG -o tr_align.bam
 
         samtools index -@ ${task.cpus} tr_align.bam
         """
