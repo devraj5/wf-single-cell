@@ -223,6 +223,10 @@ process assign_features {
         tuple val(meta),
               path("gffcompare.annotated.gtf"),
               emit: annotation
+        tuple val(meta),
+              val(chr),
+              path("tr_tags.tsv"),
+              emit: tr_tags  // New output
     """
     # gffcomapre maps transcript reference IDs to query transcripts.
     gffcompare -o gffcompare -r chr.gtf stringtie.gff
@@ -233,6 +237,13 @@ process assign_features {
         chr.gtf \
         tags.tsv \
         feature_assigns.tsv \
+        --min_mapq ${params.gene_assigns_minqv}
+
+    # Generate transcriptome-specific tags including UB
+    workflow-glue generate_tr_tags \
+        tr_align.bam \
+        tags.tsv \
+        tr_tags.tsv \
         --min_mapq ${params.gene_assigns_minqv}
     """
 }
@@ -409,13 +420,13 @@ process tag_tr_bam {
     cpus 4
     memory "16 GB"
     input:
-        tuple val(meta), val(chr), path('tr_align.bam'), path('tags/tag_*.tsv')
+        tuple val(meta), val(chr), path('tr_align.bam'), path('tr_tags.tsv')
     output:
         tuple val(meta), val(chr), path("tagged_tr.bam"), path('tagged_tr.bam.bai')
     script:
     """
     workflow-glue tag_bam \
-        tr_align.bam tagged_tr.bam tags \
+        tr_align.bam tagged_tr.bam tr_tags.tsv \
         --threads ${task.cpus}
     samtools index -@ ${task.cpus} "tagged_tr.bam"
     """
@@ -531,7 +542,7 @@ workflow process_bams {
             align_to_transcriptome.out.read_tr_map
                 .map { meta, chr, chr_gtf, tr_align_bam, stringtie_gff -> 
                     [meta, chr, tr_align_bam] }
-                .combine(chr_tags, by: [0, 1])
+                .join(assign_features.out.tr_tags, by: [0, 1])
         )
     
     emit:
@@ -566,3 +577,4 @@ workflow process_bams {
             .map { meta, chr, bam, bai -> [meta, bam, bai] }
             .groupTuple(by: 0)
 }
+
