@@ -576,5 +576,5 @@ workflow process_bams {
             .groupTuple(size: 2)
             .map { key, files -> [key, files.flatten()] }
         expression_stats = create_matrix.out.stats
-        tagged_tr_align_bam = tagged_tr_bam.out.tagged_tr_bam.collect()
+        tagged_tr_align_bam = tag_tr_bam.out.tagged_tr_bam.collect()
 }
