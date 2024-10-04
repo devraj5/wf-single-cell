@@ -414,13 +414,13 @@ process tag_tr_bam {
     memory "16 GB"
     publishDir "${params.out_dir}/${meta.alias}", mode: 'copy'
     input:
-        tuple val(meta), val(chr), path('tr_align.bam'), path('tags/tag_*.tsv')
+        tuple val(meta), val(chr), path('tr_align.bam'), path('feature_assigns.tsv')
     output:
         tuple val(meta), val(chr), path("tagged_tr_align.bam"), path('tagged_tr_align.bam.bai')
     script:
     """
     workflow-glue tag_bam \
-        tr_align.bam tagged_tr_align.bam tags \
+        tr_align.bam tagged_tr_align.bam feature_assigns.tsv \
         --threads ${task.cpus}
     samtools index -@ ${task.cpus} "tagged_tr_align.bam"
     """
@@ -485,7 +485,7 @@ workflow process_bams {
 
         tag_tr_bam(
             align_to_transcriptome.out.untagged_tr_bam
-                .join(chr_tags, by: [0, 1]))
+                .join(assign_features.out.feature_assigns, by: [0, 1]))
 
         assign_features(
             align_to_transcriptome.out.read_tr_map
