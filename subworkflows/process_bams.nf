@@ -414,9 +414,9 @@ process tag_tr_bam {
     memory "16 GB"
     publishDir "${params.out_dir}/${meta.alias}", mode: 'copy'
     input:
-        tuple val(meta), val(chr), path('tr_align.bam'), path('tags/tag_*.tsv')
+        tuple val(meta), path('tr_align.bam'), path('tags/tag_*.tsv')
     output:
-        tuple val(meta), val(chr), path("tagged_tr_align.bam"), path('tagged_tr_align.bam.bai')
+        tuple val(meta), path("tagged_tr_align.bam"), path('tagged_tr_align.bam.bai')
     script:
     """
     workflow-glue tag_bam \
@@ -518,9 +518,31 @@ workflow process_bams {
         final_read_tags = combine_final_tag_files(tags_by_sample)
         tag_bam(merge_bams.out.join(tags_by_sample))
 
+        // Merge transcriptome-aligned BAMs before tagging
+        merge_tr_bams = align_to_transcriptome.out.untagged_tr_bam
+            .groupTuple()
+            .map { meta, chrs, bams -> 
+                [meta, bams.flatten()]
+            }
+
+        merge_tr_bams_process = process {
+            input:
+                tuple val(meta), path('tr_align_*.bam')
+            output:
+                tuple val(meta), path('merged_tr_align.bam')
+            script:
+            """
+            samtools merge -@ ${task.cpus} merged_tr_align.bam tr_align_*.bam
+            """
+        }
+
+        merged_tr_bams = merge_tr_bams_process(merge_tr_bams)
+
+        // Tag the merged transcriptome-aligned BAM
         tag_tr_bam(
-            align_to_transcriptome.out.untagged_tr_bam
-                .join(chr_tags, by: [0, 1]))
+            merged_tr_bams
+                .join(tags_by_sample)
+        )
 
         // UMI saturation curves
         // TODO: this save figures with matplotlib -- just output
