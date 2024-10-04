@@ -1,3 +1,6 @@
+import java.util.ArrayList;
+
+
 process split_gtf_by_chroms {
     label "singlecell"
     cpus 1
@@ -160,12 +163,13 @@ process align_to_transcriptome {
               path('transcriptome.fa'),
               path('chr.gtf'),
               path('stringtie.gff'),
-              path("reads.fastq.gz")
+              path("reads.fq.gz")
     output:
         tuple val(meta),
               val(chr),
               path("chr.gtf"),
               path("tr_align.bam"),
+              path("tr_align.bam.bai"),
               path('stringtie.gff'),
               emit: read_tr_map
     script:
@@ -173,12 +177,14 @@ process align_to_transcriptome {
     def sort_threads = 3
     def mm2_threads = Math.max(task.cpus - view_threads - sort_threads, 4)
     """
-    minimap2 -ax map-ont \
+    minimap2 --eqx -N 100 -ax map-ont \
         --cap-kalloc 100m --cap-sw-mem 50m \
         --end-bonus 10 -p 0.9 -N 3 -t $mm2_threads \
-        transcriptome.fa reads.fastq.gz \
+        transcriptome.fa reads.fq.gz \
     | samtools view -h -@ $view_threads -b -F 2052 - \
     | samtools sort -n -@ $sort_threads --no-PG - > tr_align.bam
+
+    samtools index -@ ${task.cpus} tr_align.bam
     """
 }
 
@@ -231,7 +237,7 @@ process tag_transcriptome_bam {
         tuple val(meta),
               val(chr),
               path("tagged_tr_align.bam"),
-              path('tagged_tr_align.bam.bai')
+              path("tagged_tr_align.bam.bai")
     script:
     """
     mkdir tags
@@ -421,6 +427,25 @@ process tag_bam {
 }
 
 
+process tag_tr_bam {
+    label "singlecell"
+    cpus 4
+    memory "16 GB"
+    publishDir "${params.out_dir}/${meta.alias}", mode: 'copy'
+    input:
+        tuple val(meta), val(chr), path('tr_align.bam'), path('tr_align.bam.bai'), path('feature_assigns.tsv')
+    output:
+        tuple val(meta), val(chr), path("tr_tagged.bam"), path('tr_tagged.bam.bai'), emit: tagged_tr_bam
+    script:
+    """
+    workflow-glue tag_transcriptome_bam \
+        tr_align.bam tr_tagged.bam feature_assigns.tsv \
+        --threads ${task.cpus}
+    samtools index -@ ${task.cpus} "tr_tagged.bam"
+    """
+}
+
+
 workflow process_bams {
     take:
         bam
@@ -461,28 +486,19 @@ workflow process_bams {
 
         assign_features(
             align_to_transcriptome.out.read_tr_map
-                .join(chr_tags, by: [0, 1]))
+                .join(chr_tags, by: [0, 1])
+        )
 
-        tag_transcriptome_bam(
-            assign_features.out.feature_assigns
-                .join(align_to_transcriptome.out.read_tr_map, by: [0, 1])
-                .map{it ->
-                    meta = it[0][0]
-                    chr = it[0][1]
-                    feature_assigns = it[0][2]
-                    tr_align_bam = it[1][3]
-                    tr_align_bam_bai = tr_align_bam + ".bai"
-                    [meta, chr, tr_align_bam, tr_align_bam_bai, feature_assigns]})
-
-        merge_tagged_transcriptome_bams(
-            tag_transcriptome_bam.out
-                .groupTuple()
-                .map{meta, chrs, files ->
-                    [meta, files.collect{it[2]}, files.collect{it[3]}]})
+        // Tag the transcriptome-mapped BAM file
+        tag_tr_bam(
+            align_to_transcriptome.out.read_tr_map
+                .join(assign_features.out.feature_assigns, by: [0,1])
+        )
 
         create_matrix(
             assign_features.out.feature_assigns
-                .join(chr_tags, by: [0, 1]))
+                .join(chr_tags, by: [0, 1])
+        )
 
         process_matrix(
             create_matrix.out.gene.groupTuple(by: [0, 2])
@@ -535,5 +551,8 @@ workflow process_bams {
             .map{key, files -> [key, files.flatten()]}
         expression_stats = create_matrix.out.stats
         tagged_transcriptome_bam = merge_tagged_transcriptome_bams.out.tagged_tr_bam
+
+        // Include the tagged transcriptome BAM file in the outputs
+        tagged_tr_bam = tag_tr_bam.out.tagged_tr_bam
 
 }
