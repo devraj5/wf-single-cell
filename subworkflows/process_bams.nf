@@ -412,15 +412,15 @@ process tag_tr_bam {
     label "singlecell"
     cpus 4
     memory "16 GB"
-    publishDir "${params.out_dir}/${meta.alias}/transcriptome_aligned", mode: 'copy'
+    publishDir "${params.out_dir}/${meta.alias}", mode: 'copy'
     input:
-        tuple val(meta), val(chr), path('tr_align.bam'), path('tags.tsv')
+        tuple val(meta), val(chr), path('tr_align.bam'), path('tags/tag_*.tsv')
     output:
         tuple val(meta), val(chr), path("tagged_tr_align.bam"), path('tagged_tr_align.bam.bai')
     script:
     """
     workflow-glue tag_bam \
-        tr_align.bam tagged_tr_align.bam tags.tsv \
+        tr_align.bam tagged_tr_align.bam tags \
         --threads ${task.cpus}
     samtools index -@ ${task.cpus} "tagged_tr_align.bam"
     """
