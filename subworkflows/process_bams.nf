@@ -427,6 +427,21 @@ process tag_tr_bam {
 }
 
 
+process merge_tr_bams {
+    label "singlecell"
+    cpus params.threads
+    memory "8 GB"
+    input:
+        tuple val(meta), path('tr_align_*.bam')
+    output:
+        tuple val(meta), path('merged_tr_align.bam')
+    script:
+    """
+    samtools merge -@ ${task.cpus} merged_tr_align.bam tr_align_*.bam
+    """
+}
+
+
 workflow process_bams {
     take:
         bam
@@ -519,28 +534,17 @@ workflow process_bams {
         tag_bam(merge_bams.out.join(tags_by_sample))
 
         // Merge transcriptome-aligned BAMs before tagging
-        merge_tr_bams = align_to_transcriptome.out.untagged_tr_bam
-            .groupTuple()
-            .map { meta, chrs, bams -> 
-                [meta, bams.flatten()]
-            }
-
-        merge_tr_bams_process = process {
-            input:
-                tuple val(meta), path('tr_align_*.bam')
-            output:
-                tuple val(meta), path('merged_tr_align.bam')
-            script:
-            """
-            samtools merge -@ ${task.cpus} merged_tr_align.bam tr_align_*.bam
-            """
-        }
-
-        merged_tr_bams = merge_tr_bams_process(merge_tr_bams)
+        merge_tr_bams(
+            align_to_transcriptome.out.untagged_tr_bam
+                .groupTuple()
+                .map { meta, chrs, bams -> 
+                    [meta, bams.flatten()]
+                }
+        )
 
         // Tag the merged transcriptome-aligned BAM
         tag_tr_bam(
-            merged_tr_bams
+            merge_tr_bams.out
                 .join(tags_by_sample)
         )
 
