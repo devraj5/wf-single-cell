@@ -420,7 +420,7 @@ process tag_tr_bam {
     script:
     """
     workflow-glue tag_bam \
-        tr_align.bam tagged_tr_align.bam tags.tsv \
+        tr_align.bam tagged_tr_align.bam tags \
         --threads ${task.cpus}
     samtools index -@ ${task.cpus} "tagged_tr_align.bam"
     """
