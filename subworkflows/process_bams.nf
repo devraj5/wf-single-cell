@@ -430,7 +430,7 @@ process tag_tr_bam {
 
 
 process merge_tagged_tr_bams {
-    label "wf_common"
+    label "singlecell"
     cpus params.threads
     memory "8 GB"
     input:
@@ -509,6 +509,26 @@ workflow process_bams {
             align_to_transcriptome.out.read_tr_map
                 .join(chr_tags, by: [0, 1]))
 
+        // Tag the transcriptome-aligned BAM files
+        tag_tr_bam(
+            align_to_transcriptome.out.read_tr_map
+                .join(assign_features.out.feature_assigns, by: [0,1])
+                .map { meta, chr, tr_files, feature_assigns ->
+                    [meta, chr, tr_files[3], feature_assigns[2]] // tr_align.bam and feature_assigns.tsv
+                }
+        )
+
+        // Merge the tagged BAM files
+        merge_tagged_tr_bams(
+            tag_tr_bam.out.tagged_tr_align_bam
+                .groupTuple(by: [0])
+                .map { meta, chrs, files ->
+                    tagged_tr_bams = files.collect { it[2] } // tagged_tr_align.bam
+                    tagged_tr_bais = files.collect { it[3] } // tagged_tr_align.bam.bai
+                    [meta, tagged_tr_bams, tagged_tr_bais]
+                }
+        )
+
         create_matrix(
             assign_features.out.feature_assigns
                 // Join on [sample meta, chr]
@@ -553,28 +573,7 @@ workflow process_bams {
             generate_whitelist.out.kneeplot
                 .concat(umi_gene_saturation.out.saturation_curve)
                 .groupTuple())
-
-        // Tag the transcriptome-aligned BAM files
-        tag_tr_bam_input = align_to_transcriptome.out.read_tr_map
-            .join(assign_features.out.feature_assigns, by: [0,1])
-            .map { meta, chr, tr_align_map, feature_assigns ->
-                tr_align_bam = tr_align_map[3]
-                feature_assigns_tsv = feature_assigns[2]
-                tuple(meta, chr, tr_align_bam, feature_assigns_tsv)
-            }
-
-        tag_tr_bam_input | tag_tr_bam
-
-        merge_tagged_tr_bams_input = tag_tr_bam.out.tagged_tr_align_bam
-            .groupTuple(by: [0])
-            .map { meta, chrs, files ->
-                tagged_tr_bams = files.collect { it[2] }
-                tagged_tr_bais = files.collect { it[3] }
-                tuple(meta, tagged_tr_bams, tagged_tr_bais)
-            }
-
-        merge_tagged_tr_bams_input | merge_tagged_tr_bams
-
+    
     emit:
 
         // Emit sperately for use in the report
@@ -601,7 +600,6 @@ workflow process_bams {
             .map{key, files -> [key, files.flatten()]}
         // per chromosome expression statistics
         expression_stats = create_matrix.out.stats
-
         // Emit the tagged transcriptome-aligned BAM file
         tagged_transcriptome_bam = merge_tagged_tr_bams.out.tagged_tr_bam
 }
