@@ -550,9 +550,6 @@ workflow process_bams {
             .groupTuple(size:2)
             .map{key, files -> [key, files.flatten()]}
         expression_stats = create_matrix.out.stats
-        tagged_transcriptome_bam = merge_tagged_transcriptome_bams.out.tagged_tr_bam
-
-        // Include the tagged transcriptome BAM file in the outputs
         tagged_tr_bam = tag_tr_bam.out.tagged_tr_bam
 
 }
