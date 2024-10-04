@@ -483,13 +483,13 @@ workflow process_bams {
         //       any intermediate files whatsoever.
         align_to_transcriptome(stringtie.out.read_tr_map)
 
-        tag_tr_bam(
-            align_to_transcriptome.out.untagged_tr_bam
-                .join(assign_features.out.feature_assigns, by: [0, 1]))
-
         assign_features(
             align_to_transcriptome.out.read_tr_map
                 .join(chr_tags, by: [0, 1]))
+
+        tag_tr_bam(
+            align_to_transcriptome.out.untagged_tr_bam
+                .join(assign_features.out.feature_assigns, by: [0, 1]))
 
         create_matrix(
             assign_features.out.feature_assigns
