@@ -487,10 +487,6 @@ workflow process_bams {
             align_to_transcriptome.out.read_tr_map
                 .join(chr_tags, by: [0, 1]))
 
-        tag_tr_bam(
-            align_to_transcriptome.out.untagged_tr_bam
-                .join(chr_tags, by: [0, 1]))
-
         create_matrix(
             assign_features.out.feature_assigns
                 // Join on [sample meta, chr]
@@ -521,6 +517,10 @@ workflow process_bams {
             .map{meta, chrs, files -> [meta, files]}
         final_read_tags = combine_final_tag_files(tags_by_sample)
         tag_bam(merge_bams.out.join(tags_by_sample))
+
+        tag_tr_bam(
+            align_to_transcriptome.out.untagged_tr_bam
+                .join(chr_tags, by: [0, 1]))
 
         // UMI saturation curves
         // TODO: this save figures with matplotlib -- just output
