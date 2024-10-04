@@ -183,8 +183,6 @@ process align_to_transcriptome {
         transcriptome.fa reads.fq.gz \
     | samtools view -h -@ $view_threads -b -F 2052 - \
     | samtools sort -n -@ $sort_threads --no-PG - > tr_align.bam
-
-    samtools index -@ ${task.cpus} tr_align.bam
     """
 }
 
@@ -442,6 +440,8 @@ process tag_tr_bam {
         tr_align.bam tr_tagged.bam feature_assigns.tsv \
         --threads ${task.cpus}
     samtools index -@ ${task.cpus} "tr_tagged.bam"
+    samtools sort -@ ${task.cpus} -o tr_tagged.bam tr_tagged_name_sorted.bam
+    samtools index -@ ${task.cpus} tr_tagged.bam
     """
 }
 
