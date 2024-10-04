@@ -395,7 +395,7 @@ process tag_bam {
     memory "16 GB"
     publishDir "${params.out_dir}/${meta.alias}", mode: 'copy'
     input:
-        tuple val(meta), path('align.bam'), path('align.bam.bai'), path('tags/tag_*.tsv')
+        tuple val(meta), path('align.bam'), path('align.bam.bai'), path('tags.tsv')
     output:
          tuple val(meta), path("tagged.bam"), path('tagged.bam.bai')
     script:
