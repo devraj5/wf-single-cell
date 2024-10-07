@@ -425,7 +425,7 @@ process tag_tr_bam {
     memory "16 GB"
     publishDir "${params.out_dir}/${meta.alias}", mode: 'copy'
     input:
-        tuple val(meta), path('merged_tr_align.bam'), path('read_summary.tsv')
+        tuple val(meta), path('merged_tr_align.bam'), path('merged_tr_align.bam.bai'), path('read_summary.tsv')
     output:
         tuple val(meta), path("tagged_tr_align.bam"), path('tagged_tr_align.bam.bai')
     script:
