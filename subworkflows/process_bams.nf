@@ -425,13 +425,13 @@ process tag_tr_bam {
     memory "16 GB"
     publishDir "${params.out_dir}/${meta.alias}", mode: 'copy'
     input:
-        tuple val(meta), path('merged_tr_align.bam'), path('tags/tag_*.tsv')
+        tuple val(meta), path('merged_tr_align.bam'), path('read_summary.tsv')
     output:
         tuple val(meta), path("tagged_tr_align.bam"), path('tagged_tr_align.bam.bai')
     script:
     """
     workflow-glue tag_bam \
-        merged_tr_align.bam tagged_tr_align.bam tags \
+        merged_tr_align.bam tagged_tr_align.bam read_summary.tsv \
         --threads ${task.cpus}
     samtools index -@ ${task.cpus} "tagged_tr_align.bam"
     """
@@ -541,10 +541,10 @@ workflow process_bams {
         final_read_tags = combine_final_tag_files(tags_by_sample)
         tag_bam(merge_bams.out.join(tags_by_sample))
 
-        // Tag the merged transcriptome-aligned BAM
+        // Tag the merged transcriptome-aligned BAM using the final read summary
         tag_tr_bam(
             merge_tr_bams.out
-                .join(tags_by_sample)
+                .join(final_read_tags)
         )
 
         // UMI saturation curves
