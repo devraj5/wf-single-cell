@@ -54,23 +54,23 @@ def argparser():
 class Tags:
     """Storing tag data for a read."""
 
-    CB = None
-    CR = None
-    CY = None
-    UB = None
-    UR = None
-    UY = None
-    GN = None
-    TR = None
-    chrom = None
+    CB: str = None
+    CR: str = None
+    CY: str = None
+    UB: str = None
+    UR: str = None
+    UY: str = None
+    GN: str = None
+    TR: str = None
+    chrom: str = None
 
     @classmethod
     def from_dict(cls, d):
         """Create instance from a dictionary."""
         self = cls()
         for k in BAM_TAGS.values():
-            setattr(self, k, d[k])
-        setattr(self, "chrom", d["chr"])
+            setattr(self, k, d.get(k))  # Use .get() to avoid KeyError
+        setattr(self, "chrom", d.get("chr"))
         return self
 
 
