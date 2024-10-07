@@ -191,7 +191,7 @@ process align_to_transcriptome {
     def sort_threads = 3
     def mm2_threads = Math.max(task.cpus - view_threads - sort_threads, 4)
     """
-    minimap2 --eqx -N 100 -ax map-ont \
+    minimap2 -ax map-ont \
         --cap-kalloc 100m --cap-sw-mem 50m \
         --end-bonus 10 -p 0.9 -N 3 -t $mm2_threads \
         transcriptome.fa reads.fq.gz \
@@ -207,18 +207,17 @@ process tag_transcriptome_bam {
     memory "16 GB"
     publishDir "${params.out_dir}/${meta.alias}", mode: 'copy'
     input:
-        tuple val(meta), val(chr), path('tr_align.bam'), path('chr.gtf'), path('stringtie.gff'), path('tags.tsv')
+        tuple val(meta), val(chr), path('tr_align.bam'), path('tr_align.bam.bai'), path('tags/tag_*.tsv')
     output:
         tuple val(meta), val(chr), path("tagged_tr_align.bam"), path('tagged_tr_align.bam.bai')
     script:
     """
     workflow-glue tag_bam \
-        tr_align.bam tagged_tr_align.bam tags.tsv \
+        tr_align.bam tagged_tr_align.bam tags \
         --threads ${task.cpus}
     samtools index -@ ${task.cpus} "tagged_tr_align.bam"
     """
 }
-
 
 process assign_features {
     label "singlecell"
@@ -561,3 +560,5 @@ workflow process_bams {
         expression_stats = create_matrix.out.stats
         tagged_tr_bam = tag_transcriptome_bam.out
 }
+
+
