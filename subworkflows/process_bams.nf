@@ -208,10 +208,11 @@ process merge_tr_bams {
     input:
         tuple val(meta), path('tr_align_*.bam')
     output:
-        tuple val(meta), path('merged_tr_align.bam')
+        tuple val(meta), path('merged_tr_align.bam'), path('merged_tr_align.bam.bai')
     script:
     """
     samtools merge -@ ${task.cpus} merged_tr_align.bam tr_align_*.bam
+    samtools index -@ ${task.cpus} merged_tr_align.bam
     """
 }
 
@@ -433,6 +434,7 @@ process tag_tr_bam {
     workflow-glue tag_bam \
         merged_tr_align.bam tagged_tr_align.bam read_summary.tsv \
         --threads ${task.cpus}
+    
     samtools index -@ ${task.cpus} "tagged_tr_align.bam"
     """
 }
