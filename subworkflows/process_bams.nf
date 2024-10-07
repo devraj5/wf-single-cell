@@ -568,5 +568,5 @@ workflow process_bams {
         expression_stats = create_matrix.out.stats
 
         // Emit the tagged transcriptome BAM
-        tagged_tr_bam = tagged_tr_bam.out
+        tagged_tr_bam = tagged_tr_bam
 }
