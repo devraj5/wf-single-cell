@@ -191,7 +191,7 @@ process align_to_transcriptome {
     def sort_threads = 3
     def mm2_threads = Math.max(task.cpus - view_threads - sort_threads, 4)
     """
-    minimap2 --eqx -N 100 -ax map-ont \
+    minimap2 -N 100 -ax map-ont \
         --cap-kalloc 100m --cap-sw-mem 50m \
         --end-bonus 10 -p 0.9 -N 3 -t $mm2_threads \
         transcriptome.fa reads.fq.gz \
