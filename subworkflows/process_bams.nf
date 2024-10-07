@@ -496,9 +496,12 @@ workflow process_bams {
 
         // Merge transcriptome-aligned BAMs before tagging
         merge_tr_bams(
-            align_to_transcriptome.out.untagged_tr_bam
+            align_to_transcriptome.out.read_tr_map
+                .map { meta, chr, chr_gtf, tr_align_bam, stringtie_gff ->
+                    [meta, tr_align_bam]
+                }
                 .groupTuple()
-                .map { meta, chrs, bams -> 
+                .map { meta, bams -> 
                     [meta, bams.flatten()]
                 }
         )
