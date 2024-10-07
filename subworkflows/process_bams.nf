@@ -206,13 +206,16 @@ process merge_tr_bams {
     cpus params.threads
     memory "8 GB"
     input:
-        tuple val(meta), path('tr_align_*.bam')
+        tuple val(meta), 
+        path('tr_align_*.bam'), 
+        path('tr_align_*.bam.bai')
     output:
-        tuple val(meta), path('merged_tr_align.bam'), path('merged_tr_align.bam.bai')
+        tuple val(meta), 
+        path('merged_tr_align.bam'), 
+        path('merged_tr_align.bam.bai')
     script:
     """
-    samtools merge -@ ${task.cpus} merged_tr_align.bam tr_align_*.bam
-    samtools index -@ ${task.cpus} merged_tr_align.bam
+    samtools merge -@ ${task.cpus -1} --write-index -o "merged_tr_align.bam##idx##merged_tr_align.bam.bai" tr_align_*.bam
     """
 }
 
