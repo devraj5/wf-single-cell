@@ -534,7 +534,11 @@ workflow process_bams {
         tagged_bam = tag_bam(merge_bams.out.join(tags_by_sample))
 
         // Tag the transcriptome-aligned BAM
-        merged_tr_bam = merge_tr_bams(align_to_transcriptome.out.read_tr_map.groupTuple())
+        merged_tr_bam = merge_tr_bams(
+            align_to_transcriptome.out.read_tr_map
+                .map { meta, chr, gtf, bam, stringtie_gff -> [meta, bam] }
+                .groupTuple()
+        )
         tagged_tr_bam = tag_transcriptome_bam(
             merged_tr_bam.join(final_read_tags)
         )
