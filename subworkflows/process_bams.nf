@@ -183,7 +183,7 @@ process align_to_transcriptome {
         tuple val(meta),
               val(chr),
               path("chr.gtf"),
-              path("tr_align.bam"),
+              path("tr_align.sorted.bam"),
               path('stringtie.gff'),
               emit: read_tr_map
     script:
@@ -196,7 +196,10 @@ process align_to_transcriptome {
         --end-bonus 10 -p 0.9 -N 3 -t $mm2_threads \
         transcriptome.fa reads.fq.gz \
     | samtools view -h -@ $view_threads -b -F 2052 - \
-    | samtools sort -n -@ $sort_threads --no-PG - > tr_align.bam
+    | samtools sort -@ $sort_threads -o tr_align.sorted.bam -
+
+    # Index the sorted BAM file
+    samtools index -@ ${task.cpus} tr_align.sorted.bam
     """
 }
 
@@ -413,7 +416,15 @@ process merge_tr_bams {
 
     script:
     """
-    samtools merge -@ ${task.cpus} merged_tr_align.bam tr_align*.bam
+    # Sort each input BAM file
+    for bam in tr_align*.bam; do
+        samtools sort -@ ${task.cpus} -o sorted_\${bam} \${bam}
+    done
+
+    # Merge the sorted BAM files
+    samtools merge -@ ${task.cpus} merged_tr_align.bam sorted_tr_align*.bam
+
+    # Index the merged BAM file
     samtools index -@ ${task.cpus} merged_tr_align.bam
     """
 }
