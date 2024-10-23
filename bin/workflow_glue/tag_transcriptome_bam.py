@@ -32,28 +32,46 @@ def tag_bam(input_bam, output_bam, read_info, threads, logger):
         
         total_reads = 0
         tagged_reads = 0
+        skipped_reads = 0
         
         for read in in_bam:
             total_reads += 1
             read_id = read.query_name
             if read_id in read_info:
-                tagged_reads += 1
                 info = read_info[read_id]
-                read.set_tag("CB", info['corrected_barcode'], "Z")
-                read.set_tag("CR", info['uncorrected_barcode'], "Z")
-                read.set_tag("CY", info['quality_barcode'], "Z")
-                read.set_tag("UB", info['corrected_umi'], "Z")
-                read.set_tag("UR", info['uncorrected_umi'], "Z")
-                read.set_tag("UY", info['quality_umi'], "Z")
-                read.set_tag("GN", info['gene'], "Z")
-                read.set_tag("TR", info['transcript'], "Z")
                 
-                # Add transcriptome-specific tags
-                read.set_tag("TS", read.reference_name, "Z")  # Transcript name
-                read.set_tag("TL", read.reference_length, "i")  # Transcript length
-            
-            out_bam.write(read)
+                # Checking if barcode and UMI tags are present
+                if (info['corrected_barcode'] != '-' and info['corrected_umi'] != '-'):
+                    tagged_reads += 1
+                    
+                    # Settingtags only if they are present in the read_info
+                    if info['corrected_barcode'] != '-':
+                        read.set_tag("CB", info['corrected_barcode'], "Z")
+                    if info['uncorrected_barcode'] != '-':
+                        read.set_tag("CR", info['uncorrected_barcode'], "Z")
+                    if info['quality_barcode'] != '-':
+                        read.set_tag("CY", info['quality_barcode'], "Z")
+                    if info['corrected_umi'] != '-':
+                        read.set_tag("UB", info['corrected_umi'], "Z")
+                    if info['uncorrected_umi'] != '-':
+                        read.set_tag("UR", info['uncorrected_umi'], "Z")
+                    if info['quality_umi'] != '-':
+                        read.set_tag("UY", info['quality_umi'], "Z")
+                    if info['gene'] != '-':
+                        read.set_tag("GN", info['gene'], "Z")
+                    if info['transcript'] != '-':
+                        read.set_tag("TR", info['transcript'], "Z")
+                    
+                    # Adding transcriptome-specific tags
+                    read.set_tag("TS", read.reference_name, "Z")  # Transcript name
+                    read.set_tag("TL", read.reference_length, "i")  # Transcript length
+                    
+                    out_bam.write(read)
+                else:
+                    skipped_reads += 1
+            else:
+                skipped_reads += 1
 
     logger.info(f"Total reads processed: {total_reads}")
-    logger.info(f"Reads tagged: {tagged_reads} ({tagged_reads/total_reads:.2%})")
-
+    logger.info(f"Reads tagged and written: {tagged_reads} ({tagged_reads/total_reads:.2%})")
+    logger.info(f"Reads skipped: {skipped_reads} ({skipped_reads/total_reads:.2%})")
