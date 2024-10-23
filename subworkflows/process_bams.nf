@@ -183,9 +183,12 @@ process align_to_transcriptome {
         tuple val(meta),
               val(chr),
               path("chr.gtf"),
-              path("tr_align.sorted.bam"),
+              path("tr_align.bam"),
               path('stringtie.gff'),
               emit: read_tr_map
+        tuple val(meta),
+              path("tr_align.bam"),
+              emit: tr_bam
     script:
     def view_threads = 1
     def sort_threads = 3
@@ -196,8 +199,7 @@ process align_to_transcriptome {
         --end-bonus 10 -p 0.9 -N 3 -t $mm2_threads \
         transcriptome.fa reads.fq.gz \
     | samtools view -h -@ $view_threads -b -F 2052 - \
-    | samtools sort -@ $sort_threads -o tr_align.sorted.bam
-    samtools index -@ $sort_threads tr_align.sorted.bam
+    | samtools sort -n -@ $sort_threads --no-PG - > tr_align.bam
     """
 }
 
@@ -405,38 +407,39 @@ process tag_bam {
 }
 
 
-process merge_transcriptome_bams {
+process merge_tr_bams {
     label "wf_common"
     cpus params.threads
     memory "8 GB"
     input:
-        tuple val(meta), path('bams/*tr_align.bam')
+        tuple val(meta), path('tr_bams/*.bam')
     output:
         tuple val(meta),
-              path("merged_transcriptome.bam"),
-              path("merged_transcriptome.bam.bai"),
+              path("merged_tr.sorted.bam"),
+              path("merged_tr.sorted.bam.bai"),
               emit: merged_tr_bam
     script:
     """
-    samtools merge -@ ${task.cpus - 1} -o merged_transcriptome.bam bams/*.bam
-    samtools index -@ ${task.cpus - 1} merged_transcriptome.bam
+    samtools merge -@ ${task.cpus - 1} merged_tr.bam tr_bams/*.bam
+    samtools sort -@ ${task.cpus - 1} -o merged_tr.sorted.bam merged_tr.bam
+    samtools index -@ ${task.cpus} merged_tr.sorted.bam
     """
 }
 
 
 process tag_transcriptome_bam {
     label "singlecell"
-    cpus 4
+    cpus params.threads
     memory "16 GB"
     publishDir "${params.out_dir}/${meta.alias}", mode: 'copy'
     input:
-        tuple val(meta), path('merged_transcriptome.bam'), path('merged_transcriptome.bam.bai'), path('reads_summary.tsv')
+        tuple val(meta), path('merged_tr.sorted.bam'), path('merged_tr.sorted.bam.bai'), path('read_summary.tsv')
     output:
         tuple val(meta), path("tagged_transcriptome.bam"), path('tagged_transcriptome.bam.bai')
     script:
     """
     workflow-glue tag_transcriptome_bam \
-        merged_transcriptome.bam tagged_transcriptome.bam reads_summary.tsv \
+        merged_tr.sorted.bam tagged_transcriptome.bam read_summary.tsv \
         --threads ${task.cpus}
     samtools index -@ ${task.cpus} "tagged_transcriptome.bam"
     """
@@ -508,27 +511,6 @@ workflow process_bams {
                 // Join on [sample meta, chr]
                 .join(chr_tags, by: [0, 1]))
 
-        // construct per-read summary tables for end user
-        tags_by_sample = create_matrix.out.summary
-            .groupTuple()
-            .map{meta, chrs, files -> [meta, files]}
-        final_read_tags = combine_final_tag_files(tags_by_sample)
-
-        // Now that final_read_tags is defined, we can use it
-
-        // Merge transcriptome-aligned BAM files
-        merge_transcriptome_bams(
-            align_to_transcriptome.out.read_tr_map
-                .map { meta, chr, gtf, bam, gff -> [meta, bam] }
-                .groupTuple()
-        )
-
-        // Tag the merged transcriptome BAM file
-        tag_transcriptome_bam(
-            merge_transcriptome_bams.out.merged_tr_bam
-                .join(final_read_tags)
-        )
-
         // aggregate per-chrom expression matrices to create MEX and UMAP TSVs
         process_matrix(
             create_matrix.out.gene.groupTuple(by: [0, 2])
@@ -549,6 +531,10 @@ workflow process_bams {
         // and a tagged bam -- we don't pass final_read_tags here since its
         // advantageous for memory reasons to be able to read the per-chrom
         // tables when iterating over the BAM
+        tags_by_sample = create_matrix.out.summary
+            .groupTuple()
+            .map{meta, chrs, files -> [meta, files]}
+        final_read_tags = combine_final_tag_files(tags_by_sample)
         tag_bam(merge_bams.out.join(tags_by_sample))
 
         // UMI saturation curves
@@ -564,6 +550,18 @@ workflow process_bams {
             generate_whitelist.out.kneeplot
                 .concat(umi_gene_saturation.out.saturation_curve)
                 .groupTuple())
+    
+        // Collect transcriptome-aligned BAM files
+        tr_bams = align_to_transcriptome.out.tr_bam.groupTuple()
+
+        // Merge transcriptome-aligned BAM files
+        merge_tr_bams(tr_bams)
+
+        // Tag the transcriptome-aligned BAM
+        tag_transcriptome_bam(
+            merge_tr_bams.out.merged_tr_bam
+                .join(final_read_tags)
+        )
     
     emit:
 
@@ -593,5 +591,3 @@ workflow process_bams {
         expression_stats = create_matrix.out.stats
         tagged_transcriptome_bam = tag_transcriptome_bam.out
 }
-
-
