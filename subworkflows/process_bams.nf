@@ -497,7 +497,23 @@ workflow process_bams {
         //       any intermediate files whatsoever.
         align_to_transcriptome(stringtie.out.read_tr_map)
 
-        // Add the new steps here
+        assign_features(
+            align_to_transcriptome.out.read_tr_map
+                .join(chr_tags, by: [0, 1]))
+
+        create_matrix(
+            assign_features.out.feature_assigns
+                // Join on [sample meta, chr]
+                .join(chr_tags, by: [0, 1]))
+
+        // construct per-read summary tables for end user
+        tags_by_sample = create_matrix.out.summary
+            .groupTuple()
+            .map{meta, chrs, files -> [meta, files]}
+        final_read_tags = combine_final_tag_files(tags_by_sample)
+
+        // Now that final_read_tags is defined, we can use it
+
         // Merge transcriptome-aligned BAM files
         merge_transcriptome_bams(
             align_to_transcriptome.out.read_tr_map
@@ -510,15 +526,6 @@ workflow process_bams {
             merge_transcriptome_bams.out.merged_tr_bam
                 .join(final_read_tags)
         )
-
-        assign_features(
-            align_to_transcriptome.out.read_tr_map
-                .join(chr_tags, by: [0, 1]))
-
-        create_matrix(
-            assign_features.out.feature_assigns
-                // Join on [sample meta, chr]
-                .join(chr_tags, by: [0, 1]))
 
         // aggregate per-chrom expression matrices to create MEX and UMAP TSVs
         process_matrix(
@@ -540,10 +547,6 @@ workflow process_bams {
         // and a tagged bam -- we don't pass final_read_tags here since its
         // advantageous for memory reasons to be able to read the per-chrom
         // tables when iterating over the BAM
-        tags_by_sample = create_matrix.out.summary
-            .groupTuple()
-            .map{meta, chrs, files -> [meta, files]}
-        final_read_tags = combine_final_tag_files(tags_by_sample)
         tag_bam(merge_bams.out.join(tags_by_sample))
 
         // UMI saturation curves
