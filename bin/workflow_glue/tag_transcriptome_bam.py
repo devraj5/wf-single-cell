@@ -1,19 +1,18 @@
-#!/usr/bin/env python
 """Tag transcriptome-aligned BAM file with information from read_summary.tsv"""
 
 import pysam
 import csv
-import argparse
-from .util import get_named_logger, wf_parser  # noqa: ABS101
+from .util import get_named_logger, wf_parser
 
-def main():
+def argparser():
     parser = wf_parser("tag_transcriptome_bam")
     parser.add_argument("input_bam", help="Input transcriptome-aligned BAM file")
     parser.add_argument("output_bam", help="Output tagged BAM file")
     parser.add_argument("read_summary", help="read_summary.tsv file")
     parser.add_argument("--threads", type=int, default=1, help="Number of threads to use")
-    args = parser.parse_args()
+    return parser
 
+def main(args):
     logger = get_named_logger("TagTranscriptomeBAM")
     
     read_info = load_read_summary(args.read_summary)
@@ -58,5 +57,3 @@ def tag_bam(input_bam, output_bam, read_info, threads, logger):
     logger.info(f"Total reads processed: {total_reads}")
     logger.info(f"Reads tagged: {tagged_reads} ({tagged_reads/total_reads:.2%})")
 
-if __name__ == "__main__":
-    main()
