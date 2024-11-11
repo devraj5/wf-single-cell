@@ -594,7 +594,7 @@ workflow process_bams {
             .map{it->[it[0], it[2]]}
         mitochondrial_expression = process_matrix.out.mitocell
             .filter{it[1] == "gene"}
-            .map{it->[it[0], it[2]]
+            .map{it->[it[0], it[2]]}
         umap_matrices = process_matrix.out.umap
             .map{it->[it[0], it[2]]}
             .groupTuple(size:2)
