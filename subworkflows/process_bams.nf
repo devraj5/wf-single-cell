@@ -438,10 +438,22 @@ process tag_transcriptome_bam {
         tuple val(meta), path("tagged_transcriptome.bam"), path('tagged_transcriptome.bam.bai')
     script:
     """
+    # First tag the BAM with the read summary information
     workflow-glue tag_transcriptome_bam \
-        merged_tr.sorted.bam tagged_transcriptome.bam read_summary.tsv \
+        merged_tr.sorted.bam intermediate.bam read_summary.tsv \
         --threads ${task.cpus}
+    
+    # Then correct UMIs and output final BAM
+    workflow-glue correct_umis \
+        -i intermediate.bam \
+        -o tagged_transcriptome.bam \
+        --threads ${task.cpus}
+    
+    # Index the final BAM
     samtools index -@ ${task.cpus} "tagged_transcriptome.bam"
+    
+    # Clean up intermediate files
+    rm intermediate.bam
     """
 }
 
@@ -582,7 +594,7 @@ workflow process_bams {
             .map{it->[it[0], it[2]]}
         mitochondrial_expression = process_matrix.out.mitocell
             .filter{it[1] == "gene"}
-            .map{it->[it[0], it[2]]}
+            .map{it->[it[0], it[2]]
         umap_matrices = process_matrix.out.umap
             .map{it->[it[0], it[2]]}
             .groupTuple(size:2)
@@ -591,3 +603,4 @@ workflow process_bams {
         expression_stats = create_matrix.out.stats
         tagged_transcriptome_bam = tag_transcriptome_bam.out
 }
+
