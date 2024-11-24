@@ -438,22 +438,13 @@ process tag_transcriptome_bam {
         tuple val(meta), path("tagged_transcriptome.bam"), path('tagged_transcriptome.bam.bai')
     script:
     """
-    # First tag the BAM with the read summary information
+    # Tag the BAM with the read summary information
     workflow-glue tag_transcriptome_bam \
-        merged_tr.sorted.bam intermediate.bam read_summary.tsv \
+        merged_tr.sorted.bam tagged_transcriptome.bam read_summary.tsv \
         --threads ${task.cpus}
     
-    # Then correct UMIs and output final BAM
-    workflow-glue correct_umis \
-        -i intermediate.bam \
-        -o tagged_transcriptome.bam \
-        --threads ${task.cpus}
-    
-    # Index the final BAM
+    # Index the BAM
     samtools index -@ ${task.cpus} "tagged_transcriptome.bam"
-    
-    # Clean up intermediate files
-    rm intermediate.bam
     """
 }
 
